@@ -15,7 +15,7 @@
     .eyebrow { color:#078b40; font-size:.78rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
     h1 { margin:10px 0 14px; font-size:clamp(2rem,5vw,3.7rem); line-height:1.12; letter-spacing:-.04em; }
     header p { margin:0; color:var(--muted); line-height:1.8; }
-    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+    .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:18px; }
     .card { display:flex; flex-direction:column; min-height:320px; padding:26px; background:rgba(255,255,255,.9); border:1px solid var(--line); border-radius:22px; box-shadow:0 16px 40px rgba(32,76,49,.08); }
     .number { display:grid; place-items:center; width:42px; height:42px; border-radius:13px; background:#e9fff1; color:#078b40; font-weight:900; }
     h2 { margin:24px 0 10px; font-size:1.35rem; }
@@ -31,7 +31,7 @@
     <header>
       <div class="eyebrow">Purchaser Tools</div>
       <h1>LINEスタンプ申請<br>サポートツール</h1>
-      <p>タイトル・説明文の入力からタグ付け、タグの確認・編集まで。購入者専用の3つのツールをここから利用できます。</p>
+      <p>タイトル・説明文の入力からタグ付け、タグの確認・編集まで。購入者専用のツールをここから利用できます。</p>
     </header>
     <section class="grid" aria-label="ツール一覧">
       <article class="card">
@@ -48,6 +48,11 @@
         <div class="number">03</div><h2>タグ管理マネージャー</h2>
         <p>画像とタグ付けリストを読み込み、タグの確認・編集・書き出しをまとめて行います。</p>
         <div class="actions"><a href="./tagm.html">ツールを開く</a></div>
+      </article>
+      <article class="card">
+        <div class="number">04</div><h2>画像からタグを自動選定</h2>
+        <p>スタンプ・絵文字画像から、申請に使うタグ付け実行リストを作成します。</p>
+        <div class="actions"><a href="https://chatgpt.com/g/g-6a223c676fd08191915ecf8e563acae8-linesutanhuhui-wen-zi-takufu-ketiyan" target="_blank" rel="noopener noreferrer">タグ付けGPTを開く</a></div>
       </article>
     </section>
   </main>
