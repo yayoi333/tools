@@ -693,6 +693,9 @@
       <p class="text-sm mt-1" style="color: #6b8060;">
         LINEスタンプと絵文字のタグ付け・確認ツール
         <span class="mx-2" style="color:#a9c79a;">/</span>
+        <a href="https://yayoi333.github.io/linewl/" style="color:#2f8f62; text-decoration: underline; text-decoration-color:#8fcf9f; text-underline-offset:3px;">スタンプわーくラボ</a>
+        <span class="mx-2" style="color:#a9c79a;">/</span>
+        <a href="https://creator.line.me/ja/" target="_blank" rel="noopener noreferrer" style="color:#2f8f62; text-decoration: underline; text-decoration-color:#8fcf9f; text-underline-offset:3px;">LINE Creators Market</a>
       </p>
     </div>
     <!-- ボタン群：3グループ縦並び -->
@@ -1496,33 +1499,10 @@ function formatTagMasterDate(json) {
 }
 
 // 公開タグにはないが、スタンプ申請画面のオートサジェストで出るタグ。
-// 同階層または assets/ に tags_sticker_autosuggest_only.json があれば起動時に追加読み込みする。
-const AUTOSUGGEST_TAG_MASTER = {
-  "オートサジェスト": [
-    "嬉しい",
-    "うらやましい",
-    "愛してる",
-    "甘える",
-    "むぅ",
-    "おめでとう",
-    "おーい",
-    "こらー",
-    "チェッ",
-    "大丈夫",
-    "ピンチ",
-    "仕事中",
-    "任せた",
-    "休み",
-    "出かける",
-    "お正月",
-    "謹賀新年",
-    "ネズミ",
-    "鮭"
-  ]
-};
-
+// 同階層または assets/ に tags_sticker_autosuggest_only.json があれば起動時に読み込む
+// （loadAutosuggestTags()）。ハードコードの初期値は持たず、常にJSON駆動にする
+// ことで、昇格・削除のたびにコードを手で直す必要をなくしている。
 const AUTOSUGGEST_TAGS = new Set();
-Object.values(AUTOSUGGEST_TAG_MASTER).forEach(arr => arr.forEach(t => AUTOSUGGEST_TAGS.add(t)));
 
 function normalizeCategoryName(name, tags) {
   const label = String(name || 'タグ').replace(/\s*\(\d+\)$/, '').trim() || 'タグ';
@@ -1603,16 +1583,40 @@ function collectTagsFromJson(value, out = new Set()) {
   return out;
 }
 
+// カテゴリ情報のないフラットなタグ一覧を、内蔵TAG_MASTERのカテゴリ構造に振り分け直す。
+// 内蔵カテゴリに存在するタグはそのカテゴリへ、どこにも属さない新タグは「新規・未分類」へ。
+function categorizeFlatTags(flatTags, baseMaster) {
+  const tagSet = new Set(flatTags);
+  const result = {};
+  const covered = new Set();
+  for (const [key, tags] of Object.entries(baseMaster)) {
+    const kept = tags.filter(t => tagSet.has(t));
+    if (kept.length === 0) continue;
+    kept.forEach(t => covered.add(t));
+    result[normalizeCategoryName(key, kept)] = kept;
+  }
+  const rest = flatTags.filter(t => !covered.has(t));
+  if (rest.length > 0) {
+    result[normalizeCategoryName('新規・未分類', rest)] = rest;
+  }
+  return result;
+}
+
 async function loadOfficialTags() {
   if (location.protocol === 'file:') return;
+  const baseMaster = TAG_MASTER; // 内蔵のカテゴリ構造（振り分けの基準）
   const paths = ['tags_sticker_latest.json', 'assets/tags_sticker_latest.json'];
   for (const path of paths) {
     try {
       const res = await fetch(path, { cache: 'no-store' });
       if (!res.ok) continue;
       const json = await res.json();
-      const nextMaster = parseTagJsonToCategoryMap(json);
+      let nextMaster = parseTagJsonToCategoryMap(json);
       if (Object.keys(nextMaster).length === 0) continue;
+      // フラットJSON（カテゴリなし）は1カテゴリに潰れるため、内蔵カテゴリへ振り分け直す
+      if (Object.keys(nextMaster).length === 1) {
+        nextMaster = categorizeFlatTags(Object.values(nextMaster)[0], baseMaster);
+      }
       TAG_MASTER = nextMaster;
       rebuildAllMasterTags();
       const label = formatTagMasterDate(json);
@@ -1625,6 +1629,22 @@ async function loadOfficialTags() {
   }
 }
 
+// オートサジェストJSONの tags 配列だけからタグを抽出する。
+// （description・note・日付・カテゴリ名などの文字列をタグとして拾わないようにする）
+function extractAutosuggestTags(json) {
+  const arr = json && Array.isArray(json.tags) ? json.tags
+            : Array.isArray(json) ? json : [];
+  const out = [];
+  for (const item of arr) {
+    if (typeof item === 'string' && item.trim()) {
+      out.push(item.trim());
+    } else if (item && typeof item === 'object' && typeof item.tag === 'string' && item.tag.trim()) {
+      out.push(item.tag.trim());
+    }
+  }
+  return out;
+}
+
 async function loadAutosuggestTags() {
   if (location.protocol === 'file:') return;
   const paths = ['tags_sticker_autosuggest_only.json', 'assets/tags_sticker_autosuggest_only.json'];
@@ -1633,7 +1653,7 @@ async function loadAutosuggestTags() {
       const res = await fetch(path, { cache: 'no-store' });
       if (!res.ok) continue;
       const json = await res.json();
-      collectTagsFromJson(json).forEach(tag => {
+      extractAutosuggestTags(json).forEach(tag => {
         if (!ALL_MASTER_TAGS.has(tag)) AUTOSUGGEST_TAGS.add(tag);
       });
       break;
@@ -1648,7 +1668,10 @@ function isStickerTagContext() {
 }
 
 function isAutosuggestTagAllowed(tag) {
-  return isStickerTagContext() && AUTOSUGGEST_TAGS.has(tag);
+  // AUTOSUGGEST_TAGSは「一度でも候補に入った語」を追加のみで蓄積するため、
+  // 公開タグへ昇格済みの語が混在し得る。ALL_MASTER_TAGSにある語は
+  // 常に「公式タグ」として扱い、オートサジェスト扱いにしない。
+  return isStickerTagContext() && AUTOSUGGEST_TAGS.has(tag) && !ALL_MASTER_TAGS.has(tag);
 }
 
 function getTagKind(tag) {
@@ -2619,19 +2642,9 @@ function buildPickerOptionsHTML() {
     }).join('');
   });
 
-  if (isStickerTagContext()) {
-    let autosuggestTags = Array.from(AUTOSUGGEST_TAGS).sort((a, b) => a.localeCompare(b, 'ja'));
-    if (q) autosuggestTags = autosuggestTags.filter(t => t.toLowerCase().includes(q));
-    autosuggestTags = autosuggestTags.filter(t => !ALL_MASTER_TAGS.has(t));
-    if (autosuggestTags.length > 0) {
-      hasAny = true;
-      optionsHtml += `<div class="cat-section-header">オートサジェスト</div>`;
-      optionsHtml += autosuggestTags.map(t => {
-        const cls = existing.has(t) ? 'selected autosuggest' : 'autosuggest';
-        return `<button class="tag-option ${cls}" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`;
-      }).join('');
-    }
-  }
+  // オートサジェストタグはピッカーには表示しない。
+  // LINE申請画面のAIが提案した場合しか付かないため、手動追加は不可
+  // （タグ付けGPT等のJSONインポート経由では表示・保持される）。
 
   if (!hasAny) {
     optionsHtml = '<span style="font-size:11px; color:#8ba07d; padding:6px;">該当なし</span>';
@@ -2760,6 +2773,11 @@ document.addEventListener('pointerdown', e => {
 function addTag(no, value) {
   const v = value.trim();
   if (!v) return;
+  // オートサジェストタグは手動では追加不可（インポート経由でのみ保持される）
+  if (getTagKind(v) === 'autosuggest') {
+    alert(`「${v}」はオートサジェスト専用タグのため、手動では追加できません。\n（タグ付けGPT等が作成したリストのインポートでは読み込めます）`);
+    return;
+  }
   if (!state.tags[no]) state.tags[no] = [];
   if (state.tags[no].includes(v)) return;
   state.tags[no].push(v);
@@ -2776,6 +2794,11 @@ function removeTag(no, idx) {
 function addMustTag(value) {
   const v = value.trim();
   if (!v) return;
+  // オートサジェストタグは手動では追加不可（インポート経由でのみ保持される）
+  if (getTagKind(v) === 'autosuggest') {
+    alert(`「${v}」はオートサジェスト専用タグのため、手動では追加できません。\n（タグ付けGPT等が作成したリストのインポートでは読み込めます）`);
+    return;
+  }
   if (state.userMustTags.includes(v)) return;
   state.userMustTags.push(v);
   saveState();
@@ -3070,7 +3093,8 @@ async function exportPNG() {
     // 画像サイズ固定後、レイアウトが確定するまで待つ（描画2フレーム分）
     await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
 
-    // Androidのcanvas上限を避けつつ、カードや絵柄の途中では分割しない。
+    // Android端末ではcanvas上限が機種・メモリ量で異なるため、巨大な1枚を作らない。
+    // 通常表示はカード単位、画像のみ表示はグリッドの横一列単位でページを分ける。
     const PAGE_HEIGHT = 3500;
     const sourceWidth = Math.ceil(Math.max(target.scrollWidth, target.offsetWidth, target.getBoundingClientRect().width));
     const groups = [];
@@ -3100,6 +3124,7 @@ async function exportPNG() {
       });
     }
 
+    // 境界単位でページを割り当てる。1要素が上限を超える場合も要素自体は分断しない。
     const pageGroups = [];
     let current = [];
     let used = displayMode === 'full' ? firstPageHeaderHeight : 0;
@@ -3114,6 +3139,7 @@ async function exportPNG() {
     });
     if (current.length) pageGroups.push(current);
 
+    // ページごとの一時DOMを作る。元画像の固定済みサイズもcloneNodeで引き継がれる。
     pageGroups.forEach((page, pageIndex) => {
       let pageEl;
       if (displayMode === 'minimal') {
@@ -3142,6 +3168,7 @@ async function exportPNG() {
 
     const blobs = [];
     for (const pageEl of exportPages) {
+      // 画面外に置くとAndroid版Chromeが画像を省略することがあるため、背面に固定する。
       pageEl.style.position = 'fixed';
       pageEl.style.left = '0';
       pageEl.style.top = '0';
@@ -3183,6 +3210,7 @@ async function exportPNG() {
       link.href = url;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 30000);
+      // Androidのダウンロード処理が次のファイルを受け取れるよう少し間隔を空ける。
       if (i < blobs.length - 1) await new Promise(res => setTimeout(res, 700));
     }
   } finally {
